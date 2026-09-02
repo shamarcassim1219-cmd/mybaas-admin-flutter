@@ -1,0 +1,54 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Generate missing Android platform files
+        run: |
+          mkdir -p /tmp/scaffold
+          cd /tmp/scaffold
+          flutter create --platforms=android --org com.gobaas --project-name admin .
+          cp -rn /tmp/scaffold/android "$GITHUB_WORKSPACE/android"
+
+      - name: Bump compileSdk for plugins that need Android 36+
+        run: |
+          # Same fix used in baas-flutter/gobaas-flutter - some
+          # plugin dependencies (transitively pulled in even by
+          # flutter_secure_storage) require compiling against a
+          # higher API level than this Flutter version's default.
+          if [ -f "$GITHUB_WORKSPACE/android/app/build.gradle.kts" ]; then
+            APP_BUILD="$GITHUB_WORKSPACE/android/app/build.gradle.kts"
+          else
+            APP_BUILD="$GITHUB_WORKSPACE/android/app/build.gradle"
+          fi
+          sed -i 's/flutter\.compileSdkVersion/36/' "$APP_BUILD"
+          cat "$APP_BUILD"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
